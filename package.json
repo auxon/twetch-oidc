@@ -1,0 +1,25 @@
+{
+  "name": "twetch-oidc",
+  "version": "1.0.0",
+  "description": "Sign in with Twetch — OpenID Connect identity provider",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "dev:rp": "tsx watch examples/relying-party/server.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "twetch",
+    "oidc",
+    "oauth",
+    "openid-connect",
+    "identity-provider"
+  ],
+  "license": "MIT"
+}

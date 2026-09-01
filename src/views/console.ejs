@@ -1,0 +1,75 @@
+<%- include('partials/header', { title: 'Developer console', user }) %>
+<h1>Developer console</h1>
+<p class="lede">Register OAuth clients the way Google Cloud Console does: a name, logo, homepage, and exact redirect URIs. <span class="mono">clientIdentifier</span> is replaced by <span class="mono">client_id</span>.</p>
+<p class="muted">Issuer <span class="mono"><%= issuer %></span> · signed in as @<%= user.handle %></p>
+
+<% if (error) { %>
+  <div class="flash error"><%= error %></div>
+<% } %>
+
+<% if (created) { %>
+  <div class="flash ok">
+    <p>App created. Copy the secret now — it is not shown again.</p>
+    <p>Client ID: <span class="mono"><%= created.clientId %></span></p>
+    <% if (created.clientSecret) { %>
+      <p>Client secret: <span class="mono"><%= created.clientSecret %></span></p>
+    <% } else { %>
+      <p>Public client (PKCE only, no secret).</p>
+    <% } %>
+  </div>
+<% } %>
+
+<section class="card">
+  <h2>New app</h2>
+  <form class="stack" method="post" action="/console/apps">
+    <label>App name <input name="client_name" required placeholder="Acme Board" /></label>
+    <label>Homepage <input name="client_uri" placeholder="https://example.com" /></label>
+    <label>Logo URL <input name="logo_uri" placeholder="https://example.com/logo.png" /></label>
+    <label>Redirect URIs (one per line)
+      <textarea name="redirect_uris" required placeholder="http://localhost:3001/callback"></textarea>
+    </label>
+    <label>Post-logout redirect URIs
+      <textarea name="post_logout_redirect_uris" placeholder="http://localhost:3001"></textarea>
+    </label>
+    <label class="row" style="color: var(--ink);">
+      <input type="checkbox" name="public_client" />
+      Public client (SPA, PKCE, no secret)
+    </label>
+    <button class="btn" type="submit">Create client</button>
+  </form>
+</section>
+
+<% clients.forEach(function (app) { %>
+  <section class="app">
+    <h3><%= app.clientName %><% if (app.disabled) { %> <span class="muted">(disabled)</span><% } %></h3>
+    <p>Client ID: <span class="mono"><%= app.clientId %></span></p>
+    <p>Auth method: <span class="mono"><%= app.tokenEndpointAuthMethod %></span></p>
+    <form class="stack" method="post" action="/console/apps/<%= app.clientId %>/update">
+      <label>App name <input name="client_name" value="<%= app.clientName %>" /></label>
+      <label>Homepage <input name="client_uri" value="<%= app.clientUri || '' %>" /></label>
+      <label>Logo URL <input name="logo_uri" value="<%= app.logoUri || '' %>" /></label>
+      <label>Redirect URIs
+        <textarea name="redirect_uris"><%= app.redirectUris.join('\n') %></textarea>
+      </label>
+      <label>Post-logout redirect URIs
+        <textarea name="post_logout_redirect_uris"><%= app.postLogoutRedirectUris.join('\n') %></textarea>
+      </label>
+      <div class="row">
+        <button class="btn" type="submit">Save</button>
+      </div>
+    </form>
+    <div class="row" style="margin-top: 12px;">
+      <% if (app.tokenEndpointAuthMethod !== 'none') { %>
+        <form method="post" action="/console/apps/<%= app.clientId %>/rotate-secret">
+          <button class="btn secondary" type="submit">Rotate secret</button>
+        </form>
+      <% } %>
+      <% if (!app.disabled) { %>
+        <form method="post" action="/console/apps/<%= app.clientId %>/disable">
+          <button class="btn danger" type="submit">Disable</button>
+        </form>
+      <% } %>
+    </div>
+  </section>
+<% }) %>
+<%- include('partials/footer') %>

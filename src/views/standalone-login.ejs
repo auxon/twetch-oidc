@@ -1,0 +1,64 @@
+<%- include('partials/header', { title: 'Sign in', user: null }) %>
+<section class="card" style="max-width: 460px;">
+  <h1>Sign in</h1>
+  <% if (live) { %>
+    <p class="muted">Developer console uses your production Twetch account.</p>
+  <% } else { %>
+    <p class="muted">Developer console and hosted Twetch session.</p>
+  <% } %>
+  <% if (error) { %>
+    <div class="flash error"><%= error %></div>
+  <% } %>
+
+  <% if (live) { %>
+    <p class="muted">If the hosted login frame is blocked, paste a Twetch session token or sign the live challenge.</p>
+    <iframe
+      class="twetch-hosted"
+      src="<%= authFrontendUrl %>"
+      title="Twetch login"
+      referrerpolicy="no-referrer-when-downgrade"
+    ></iframe>
+    <form class="stack" method="post" action="/login/token" style="margin-top: 16px;">
+      <input type="hidden" name="next" value="<%= next %>" />
+      <label>
+        Twetch session token
+        <textarea name="token" placeholder="Paste the token from Twetch auth"></textarea>
+      </label>
+      <button class="btn" type="submit">Continue with token</button>
+    </form>
+    <hr style="border: 0; border-top: 1px solid var(--line); margin: 24px 0;" />
+    <h2 style="font-size: 18px;">Bitcoin signature</h2>
+    <div class="stack">
+      <button class="btn secondary" type="button" id="load-challenge">Get challenge</button>
+      <pre class="code" id="challenge-text">Challenge will appear here.</pre>
+      <label>
+        Signing address
+        <input id="address" placeholder="1..." />
+      </label>
+      <label>
+        Signature
+        <textarea id="signature" placeholder="Base64 Bitcoin signed message"></textarea>
+      </label>
+      <button class="btn secondary" type="button" id="wallet-login">Verify signature</button>
+      <p class="muted" id="wallet-status"></p>
+    </div>
+  <% } else { %>
+    <form class="stack" method="post" action="/login">
+      <input type="hidden" name="next" value="<%= next %>" />
+      <label>
+        Handle or email
+        <input name="identifier" required placeholder="josh@twetch.example" />
+      </label>
+      <label>
+        Password
+        <input name="password" type="password" required />
+      </label>
+      <button class="btn" type="submit">Sign in</button>
+    </form>
+    <% if (demoMode) { %>
+      <p class="muted">Demo: josh@twetch.example / twetch-demo</p>
+    <% } %>
+  <% } %>
+</section>
+<script src="/public/twetch-login.js"></script>
+<%- include('partials/footer') %>

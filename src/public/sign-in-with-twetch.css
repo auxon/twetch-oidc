@@ -1,0 +1,18 @@
+.siwt {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #f5a524;
+  color: #1a1204;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font: 650 16px/1 "Avenir Next", "Segoe UI", sans-serif;
+  text-decoration: none;
+}
+.siwt:hover { filter: brightness(1.05); text-decoration: none; }
+.siwt .siwt-mark {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: #1a1204;
+}

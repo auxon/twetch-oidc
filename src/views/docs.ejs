@@ -1,0 +1,68 @@
+<%- include('partials/header', { title: 'Sign in with Twetch docs', user: typeof user === 'undefined' ? null : user }) %>
+<h1>Add Sign in with Twetch</h1>
+<p class="lede">This issuer speaks OpenID Connect. Auth.js, Passport, and other OIDC libraries work with three values: issuer, client id, and client secret.</p>
+
+<section class="card">
+  <h2>1. Register an app</h2>
+  <p>Open the <a href="/console">developer console</a>, create a client, and set the callback to:</p>
+  <pre class="code">https://your-app.example/api/auth/callback/twetch</pre>
+  <p class="muted">Redirect URIs are exact-match. Localhost HTTP is allowed for development.</p>
+</section>
+
+<section class="card">
+  <h2>2. Auth.js / NextAuth provider</h2>
+  <pre class="code">import Twetch from "@twetch/authjs-provider";
+
+export const { handlers, auth } = NextAuth({
+  providers: [
+    Twetch({
+      issuer: "<%= issuer %>",
+      clientId: process.env.TWETCH_CLIENT_ID,
+      clientSecret: process.env.TWETCH_CLIENT_SECRET,
+    }),
+  ],
+});</pre>
+  <p>Copy <span class="mono">packages/authjs-twetch</span> into your app, or paste this object:</p>
+  <pre class="code">{
+  id: "twetch",
+  name: "Twetch",
+  type: "oidc",
+  issuer: "<%= issuer %>",
+  clientId: process.env.TWETCH_CLIENT_ID,
+  clientSecret: process.env.TWETCH_CLIENT_SECRET,
+  authorization: { params: { scope: "openid profile" } },
+}</pre>
+</section>
+
+<section class="card">
+  <h2>3. Button</h2>
+  <p>Include the stylesheet and use this markup:</p>
+  <pre class="code">&lt;link rel="stylesheet" href="<%= issuer %>/public/sign-in-with-twetch.css" /&gt;
+&lt;a class="siwt" href="/api/auth/signin/twetch"&gt;
+  &lt;span class="siwt-mark"&gt;&lt;/span&gt;
+  Sign in with Twetch
+&lt;/a&gt;</pre>
+  <a class="siwt" href="/login"><span class="siwt-mark"></span> Sign in with Twetch</a>
+</section>
+
+<section class="card">
+  <h2>Claims</h2>
+  <p><span class="mono">sub</span> is the Twetch user id. It does not change when a user rotates signing keys. <span class="mono">email</span> is omitted unless the account actually has one.</p>
+  <pre class="code">openid   → sub
+profile  → name, preferred_username, picture, profile, updated_at, twetch_pubkey
+email    → email, email_verified (only when present)</pre>
+</section>
+
+<section class="card">
+  <h2>Production Twetch</h2>
+  <p>This issuer authenticates against live Twetch (<span class="mono">auth.twetch.app</span>), then issues its own ID tokens. Apps still only need issuer, client id, and client secret.</p>
+  <p class="muted">Wallet login signs the challenge from Twetch. Password login on this host is disabled when <span class="mono">TWETCH_LIVE=true</span>.</p>
+</section>
+
+<section class="card">
+  <h2>Example relying party</h2>
+  <p>From the repo root:</p>
+  <pre class="code">npm run dev          # IdP on :3000npm run dev:rp       # demo app on :3001</pre>
+  <p>The seeded client is <span class="mono">twetch-example-rp</span> / <span class="mono">twetch-example-secret</span> with callback <span class="mono">http://localhost:3001/callback</span>.</p>
+</section>
+<%- include('partials/footer') %>

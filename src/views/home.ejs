@@ -1,0 +1,38 @@
+<%- include('partials/header', { title: 'Sign in with Twetch', user }) %>
+<section class="hero">
+  <p class="muted">OpenID Connect identity provider</p>
+  <h1>Sign in with Twetch</h1>
+  <p class="lede">
+    Third-party apps can add a button and a few environment variables.
+    Users keep a stable Twetch account id even if they rotate signing keys.
+  </p>
+  <div class="row" style="margin-top: 22px;">
+    <a class="siwt" href="/console">
+      <span class="siwt-mark"></span>
+      Open developer console
+    </a>
+    <a class="btn secondary" href="/docs">Setup guide</a>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Issuer</h2>
+  <p class="mono"><%= issuer %></p>
+  <p class="muted">Discovery is at <span class="mono"><%= issuer %>/.well-known/openid-configuration</span></p>
+  <% if (live) { %>
+    <p>Connected to production Twetch at <span class="mono"><%= authUrl %></span>. <span class="mono">sub</span> is the live Twetch user id from <span class="mono">me { id }</span>.</p>
+  <% } else if (demoMode) { %>
+    <p>Demo password login: <span class="mono">josh@twetch.example / twetch-demo</span></p>
+  <% } %>
+</section>
+<section class="grid-2">
+  <article class="card">
+    <h3>What apps get</h3>
+    <p class="muted">Authorization code + PKCE, ID tokens signed with published JWKS, and <span class="mono">sub</span> locked to the Twetch user id.</p>
+  </article>
+  <article class="card">
+    <h3>What users see</h3>
+    <p class="muted">Hosted login on this origin, then a consent screen naming the app, logo, and requested profile scopes.</p>
+  </article>
+</section>
+<%- include('partials/footer') %>

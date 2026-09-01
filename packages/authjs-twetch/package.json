@@ -1,0 +1,11 @@
+{
+  "name": "@twetch/authjs-provider",
+  "version": "1.0.0",
+  "description": "Auth.js provider for Sign in with Twetch (OpenID Connect)",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "license": "MIT"
+}
