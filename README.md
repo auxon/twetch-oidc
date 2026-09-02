@@ -2,7 +2,7 @@
 
 Twetch as a login provider, in the same shape as Google OAuth: **OpenID Connect** on top of **production Twetch accounts**.
 
-Apps configure `issuer`, `client_id`, and `client_secret`. Users keep a stable Twetch user id (`sub` = GraphQL `me.id`) even if they rotate Bitcoin signing keys.
+Apps configure `issuer`, `client_id`, and `client_secret`. Users keep a stable Twetch user id (`sub` = twetch.com user id) even if they rotate signing keys.
 
 This repo is a standalone identity provider. Relying parties do not embed `@twetch/sdk`. Wallet signatures and the hosted Twetch auth UI are used only inside this issuer, the same way Google uses a password internally.
 
@@ -18,10 +18,10 @@ npm run dev
 
 `.env.example` sets `TWETCH_LIVE=true`. The issuer then:
 
-1. Loads the Bitcoin challenge from `https://auth.twetch.app/api/v1/challenge`
-2. Sends the signature to `/api/v1/authenticate`
-3. Reads `me { id name … }` from `https://api.twetch.app/v1/graphql`
-4. Issues its own OIDC tokens with `sub = me.id`
+1. Loads a login challenge from `https://api.twetch.com/v1/auth/login-challenge`
+2. Sends the wallet signature to `/v1/auth/login-external`
+3. Reads the profile from `https://api.twetch.com/v1/users/{id}`
+4. Issues its own OIDC tokens with `sub` = that Twetch user id
 
 - IdP: http://localhost:3000
 - Discovery: http://localhost:3000/.well-known/openid-configuration
@@ -53,10 +53,10 @@ Open http://localhost:3001 and use **Sign in with Twetch**. The seeded local cli
 | Button + setup guide | [`docs/sign-in-with-twetch.md`](docs/sign-in-with-twetch.md), `/docs` |
 
 ```
-Relying party  --OIDC code+PKCE-->  id.twetch.app  --live session-->  Twetch
+Relying party  --OIDC code+PKCE-->  id.entangleit.com  --live session-->  Twetch
                                          |                              |
                                          |                              +- hosted auth UI
-                                         +- ID token (sub=me.id)        +- Bitcoin signature
+                                         +- ID token (sub=me.id)        +- Twetch seed (in-browser)
 ```
 
 ## Scopes
@@ -68,8 +68,17 @@ Relying party  --OIDC code+PKCE-->  id.twetch.app  --live session-->  Twetch
 
 ## Production notes
 
-Set `ISSUER=https://id.twetch.app`, `TWETCH_LIVE=true`, strong `COOKIE_KEYS` / `SESSION_SECRET`, and terminate TLS in front of Node. If Cloudflare blocks `auth.twetch.app` from your host, point `TWETCH_AUTH_URL` and `TWETCH_GRAPHQL_URL` at an allow-listed proxy.
+Deployed as a Cloudflare Worker with D1:
 
-Rotate the RSA signing keys stored in SQLite (`signing_keys`) using the oidc-provider JWKS order described in its docs.
+```bash
+npm run db:migrate:remote
+npx wrangler secret put COOKIE_KEYS
+npx wrangler secret put SESSION_SECRET
+npm run deploy
+```
+
+Production issuer is `https://id.entangleit.com` (`ISSUER` in `wrangler.jsonc`, Worker custom domain). Live Twetch mode is on by default in Worker vars and talks to `https://api.twetch.com`. The old `auth.twetch.app` API is down.
+
+Rotate the EC signing keys stored in D1 (`signing_keys`) using the oidc-provider JWKS order described in its docs.
 
 Login tokens are identity only. Do not stuff pay/post grants into the ID token.

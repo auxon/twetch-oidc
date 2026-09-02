@@ -1,0 +1,45 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "twetch-oidc",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "id.entangleit.com",
+      "custom_domain": true
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "assets": {
+    "directory": "./src/public",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "none",
+    "run_worker_first": true
+  },
+  "rules": [
+    { "type": "Text", "globs": ["**/*.ejs"], "fallthrough": true }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "twetch-oidc",
+      "database_id": "9e0d62f0-f69e-4627-8e35-0525986f3e39"
+    }
+  ],
+  "vars": {
+    "ISSUER": "https://id.entangleit.com",
+    "NODE_ENV": "production",
+    "TWETCH_LIVE": "true",
+    "TWETCH_DEMO_MODE": "false",
+    "TWETCH_AUTH_URL": "https://api.twetch.com",
+    "TWETCH_API_URL": "https://api.twetch.com",
+    "TWETCH_GRAPHQL_URL": "https://api.twetch.com",
+    "TWETCH_AUTH_FRONTEND_URL": "https://twetch.com"
+  }
+}

@@ -4,7 +4,7 @@ Use Twetch as a login provider the same way you use Google: register a client, p
 
 ## Issuer
 
-Production issuer should be `https://id.twetch.app`. Locally it is `http://localhost:3000`.
+Production issuer is `https://id.entangleit.com`. Locally it is `http://localhost:3000`.
 
 Discovery:
 
@@ -46,7 +46,7 @@ import Twetch from "@twetch/authjs-provider";
 export const { handlers, auth } = NextAuth({
   providers: [
     Twetch({
-      issuer: process.env.TWETCH_ISSUER, // https://id.twetch.app
+      issuer: process.env.TWETCH_ISSUER, // https://id.entangleit.com
       clientId: process.env.TWETCH_CLIENT_ID,
       clientSecret: process.env.TWETCH_CLIENT_SECRET,
     }),
@@ -73,7 +73,7 @@ Ask for email only if you need it: `scope: "openid profile email"`. Email is omi
 ## Button
 
 ```html
-<link rel="stylesheet" href="https://id.twetch.app/public/sign-in-with-twetch.css" />
+<link rel="stylesheet" href="https://id.entangleit.com/public/sign-in-with-twetch.css" />
 <a class="siwt" href="/api/auth/signin/twetch">
   <span class="siwt-mark"></span>
   Sign in with Twetch
