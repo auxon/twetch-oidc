@@ -5,6 +5,7 @@ interface PayloadRow {
   payload: string;
   expires_at: number | null;
   consumed: number;
+  id?: string;
 }
 
 export class SqliteAdapter {
@@ -15,76 +16,86 @@ export class SqliteAdapter {
 
   async upsert(id: string, payload: Record<string, unknown>, expiresIn?: number) {
     const expiresAt = expiresIn ? Date.now() + expiresIn * 1000 : null;
-    this.db.prepare(`
-      INSERT INTO oidc_payloads (model, id, payload, expires_at, uid, grant_id, user_code, consumed)
-      VALUES (@model, @id, @payload, @expiresAt, @uid, @grantId, @userCode, 0)
+    await this.db.run(
+      `INSERT INTO oidc_payloads (model, id, payload, expires_at, uid, grant_id, user_code, consumed)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0)
       ON CONFLICT(model, id) DO UPDATE SET
         payload = excluded.payload,
         expires_at = excluded.expires_at,
         uid = excluded.uid,
         grant_id = excluded.grant_id,
-        user_code = excluded.user_code
-    `).run({
-      model: this.model,
+        user_code = excluded.user_code`,
+      this.model,
       id,
-      payload: JSON.stringify(payload),
+      JSON.stringify(payload),
       expiresAt,
-      uid: (payload.uid as string | undefined) ?? null,
-      grantId: (payload.grantId as string | undefined) ?? null,
-      userCode: (payload.userCode as string | undefined) ?? null,
-    });
+      (payload.uid as string | undefined) ?? null,
+      (payload.grantId as string | undefined) ?? null,
+      (payload.userCode as string | undefined) ?? null,
+    );
   }
 
   async find(id: string) {
     if (this.model === "Client") {
-      const client = getClient(this.db, id);
+      const client = await getClient(this.db, id);
       if (!client || client.disabled) return undefined;
       return toOidcClientMetadata(client);
     }
-    const row = this.db.prepare(
+    const row = await this.db.first<PayloadRow>(
       "SELECT payload, expires_at, consumed FROM oidc_payloads WHERE model = ? AND id = ?",
-    ).get(this.model, id) as PayloadRow | undefined;
+      this.model,
+      id,
+    );
     return this.hydrate(row, id);
   }
 
   async findByUid(uid: string) {
-    const row = this.db.prepare(
+    const row = await this.db.first<PayloadRow>(
       "SELECT id, payload, expires_at, consumed FROM oidc_payloads WHERE model = ? AND uid = ?",
-    ).get(this.model, uid) as (PayloadRow & { id: string }) | undefined;
+      this.model,
+      uid,
+    );
     return this.hydrate(row, row?.id);
   }
 
   async findByUserCode(userCode: string) {
-    const row = this.db.prepare(
+    const row = await this.db.first<PayloadRow>(
       "SELECT id, payload, expires_at, consumed FROM oidc_payloads WHERE model = ? AND user_code = ?",
-    ).get(this.model, userCode) as (PayloadRow & { id: string }) | undefined;
+      this.model,
+      userCode,
+    );
     return this.hydrate(row, row?.id);
   }
 
   async consume(id: string) {
-    const row = this.db.prepare(
+    const row = await this.db.first<{ payload: string }>(
       "SELECT payload FROM oidc_payloads WHERE model = ? AND id = ?",
-    ).get(this.model, id) as { payload: string } | undefined;
+      this.model,
+      id,
+    );
     if (!row) return;
     const payload = JSON.parse(row.payload) as Record<string, unknown>;
     payload.consumed = Math.floor(Date.now() / 1000);
-    this.db.prepare(
+    await this.db.run(
       "UPDATE oidc_payloads SET payload = ?, consumed = 1 WHERE model = ? AND id = ?",
-    ).run(JSON.stringify(payload), this.model, id);
+      JSON.stringify(payload),
+      this.model,
+      id,
+    );
   }
 
   async destroy(id: string) {
-    this.db.prepare("DELETE FROM oidc_payloads WHERE model = ? AND id = ?").run(this.model, id);
+    await this.db.run("DELETE FROM oidc_payloads WHERE model = ? AND id = ?", this.model, id);
   }
 
   async revokeByGrantId(grantId: string) {
-    this.db.prepare("DELETE FROM oidc_payloads WHERE grant_id = ?").run(grantId);
+    await this.db.run("DELETE FROM oidc_payloads WHERE grant_id = ?", grantId);
   }
 
-  private hydrate(row: PayloadRow | undefined, id?: string) {
+  private async hydrate(row: PayloadRow | undefined, id?: string) {
     if (!row) return undefined;
     if (row.expires_at && row.expires_at < Date.now()) {
-      if (id) this.destroy(id);
+      if (id) await this.destroy(id);
       return undefined;
     }
     return JSON.parse(row.payload);

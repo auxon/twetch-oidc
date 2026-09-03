@@ -11,8 +11,9 @@ export function mountPages(app: Express, db: Db, config: AppConfig) {
       user,
       demoMode: config.demoMode && !config.live,
       live: config.live,
-      authUrl: config.twetch.authUrl,
+      authUrl: config.twetch.apiUrl,
     });
+  });
 
   app.get("/docs", async (req, res) => {
     const user = await readSessionUser(req, db, config.sessionSecret);
@@ -20,12 +21,14 @@ export function mountPages(app: Express, db: Db, config: AppConfig) {
       issuer: config.issuer,
       user,
       live: config.live,
-      authUrl: config.twetch.authUrl,
+      authUrl: config.twetch.apiUrl,
     });
   });
 
-  app.get("/.well-known/twetch-configuration", (_req, res) => {    res.json({
-      issuer: config.issuer,      provider: "twetch",
+  app.get("/.well-known/twetch-configuration", (_req, res) => {
+    res.json({
+      issuer: config.issuer,
+      provider: "twetch",
       brand: "Sign in with Twetch",
       scopes_supported: ["openid", "profile", "email", "offline_access"],
       claims_supported: [
@@ -41,7 +44,7 @@ export function mountPages(app: Express, db: Db, config: AppConfig) {
       ],
       subject: "Twetch user id. Stable across signing-key rotation.",
       live: config.live,
-      twetch_auth: config.live ? config.twetch.authUrl : null,
+      twetch_auth: config.live ? config.twetch.apiUrl : null,
     });
   });
 }

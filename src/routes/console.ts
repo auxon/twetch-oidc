@@ -9,7 +9,7 @@ import { getUserByEmail, getUserByHandle } from "../db.ts";
 import { verifyPassword } from "../auth/password.ts";
 import { clearUserSession, readSessionUser, setUserSession } from "../auth/session.ts";
 import { createChallenge, storeChallenge } from "../auth/challenge.ts";
-import { completeTwetchTokenLogin, completeTwetchWalletLogin, readSubmittedToken } from "../twetch/login.ts";
+import { completeTwetchSeedLogin, completeTwetchWalletLogin } from "../twetch/login.ts";
 import { TwetchAuthError, type TwetchClient } from "../twetch/types.ts";
 import type { OAuthClientRecord, TwetchUser } from "../types.ts";
 
@@ -87,6 +87,12 @@ function safeNext(value: unknown): string {
   return next.startsWith("/") ? next : "/console";
 }
 
+function hasSeedPhraseField(body: unknown): boolean {
+  if (!body || typeof body !== "object") return false;
+  const record = body as Record<string, unknown>;
+  return ["mnemonic", "seed", "seedPhrase", "phrase"].some((key) => typeof record[key] === "string" && record[key]);
+}
+
 export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: TwetchClient) {
   app.get("/login", async (req, res) => {
     const user = await readSessionUser(req, db, config.sessionSecret);
@@ -110,24 +116,25 @@ export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: T
         return;
       }
       try {
-        const message = await twetch.getChallenge();
-        const challenge = storeChallenge(db, message);
-        res.json({ ...challenge, source: "twetch" });
+        const payload = await twetch.getChallenge();
+        const stored = await storeChallenge(db, JSON.stringify(payload));
+        res.json({ id: stored.id, message: payload.message, source: "twetch" });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Could not reach Twetch auth.";
         res.status(502).json({ error: message });
       }
       return;
     }
-    const challenge = createChallenge(db, config.issuer);
+    const challenge = await createChallenge(db, config.issuer);
     res.json({ ...challenge, source: "local" });
   });
 
   app.post("/login/wallet", parseJson, async (req, res) => {
-    const { challengeId, address, signature } = req.body as {
+    const { challengeId, address, signature, algorithm } = req.body as {
       challengeId?: string;
       address?: string;
       signature?: string;
+      algorithm?: string;
     };
     const next = safeNext(req.body?.next);
     if (!challengeId || !address || !signature) {
@@ -143,7 +150,46 @@ export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: T
       return;
     }
     try {
-      const user = await completeTwetchWalletLogin(db, twetch, { challengeId, address, signature });
+      const user = await completeTwetchWalletLogin(db, twetch, { challengeId, address, signature, algorithm });
+      await setUserSession(res, user, config.sessionSecret);
+      res.json({ ok: true, redirect: next, sub: user.id });
+    } catch (err) {
+      const status = err instanceof TwetchAuthError ? (err.status ?? 401) : 401;
+      const message = err instanceof Error ? err.message : "Login failed";
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.get("/login/seed-challenge", async (_req, res) => {
+    const challenge = await createChallenge(db, config.issuer);
+    res.json({ ...challenge, source: "local" });
+  });
+
+  app.post("/login/seed", parseJson, async (req, res) => {
+    const next = safeNext(req.body?.next);
+    if (hasSeedPhraseField(req.body)) {
+      res.status(400).json({ error: "Do not send a seed phrase to the server." });
+      return;
+    }
+    const { challengeId, signature, publicKey } = req.body as {
+      challengeId?: string;
+      signature?: string;
+      publicKey?: string;
+    };
+    if (!challengeId || !signature) {
+      res.status(400).json({ error: "challengeId and signature are required" });
+      return;
+    }
+    if (!config.live) {
+      res.status(404).json({ error: "Seed login is only available in live Twetch mode." });
+      return;
+    }
+    if (!twetch) {
+      res.status(503).json({ error: "Twetch client is not configured." });
+      return;
+    }
+    try {
+      const user = await completeTwetchSeedLogin(db, twetch, { challengeId, signature, publicKey });
       await setUserSession(res, user, config.sessionSecret);
       res.json({ ok: true, redirect: next, sub: user.id });
     } catch (err) {
@@ -156,76 +202,27 @@ export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: T
   app.post("/login/token", parseJson, parseForm, async (req, res) => {
     const next = safeNext(req.body?.next ?? req.query.next);
     const json = (req.headers["content-type"] ?? "").includes("application/json");
-    if (!config.live) {
-      if (json) {
-        res.status(404).json({ error: "Token login is only available in live Twetch mode." });
-        return;
-      }
-      res.status(404).render(
-        "standalone-login",
-        standaloneLocals(config, {
-          error: "Token login is only available in live Twetch mode.",
-          next,
-        }),
-      );
+    const message = "Twetch no longer issues session tokens. Sign the wallet challenge instead.";
+    if (json) {
+      res.status(410).json({ error: message });
       return;
     }
-    if (!twetch) {
-      if (json) {
-        res.status(503).json({ error: "Twetch client is not configured." });
-        return;
-      }
-      res.status(503).render(
-        "standalone-login",
-        standaloneLocals(config, { error: "Twetch client is not configured.", next }),
-      );
-      return;
-    }
-    try {
-      const user = await completeTwetchTokenLogin(db, twetch, readSubmittedToken(req.body));
-      await setUserSession(res, user, config.sessionSecret);
-      if (json) {
-        res.json({ ok: true, redirect: next, sub: user.id });
-        return;
-      }
-      res.redirect(next);
-    } catch (err) {
-      const status = err instanceof TwetchAuthError ? (err.status ?? 401) : 401;
-      const message = err instanceof Error ? err.message : "Login failed";
-      if (json) {
-        res.status(status).json({ error: message });
-        return;
-      }
-      res.status(status).render(
-        "standalone-login",
-        standaloneLocals(config, { error: message, next }),
-      );
-    }
+    res.status(410).render(
+      "standalone-login",
+      standaloneLocals(config, {
+        error: message,
+        next,
+      }),
+    );
   });
 
   app.post("/login", parseForm, async (req, res) => {
     const next = safeNext(req.body.next);
     if (config.live) {
-      const token = readSubmittedToken(req.body);
-      if (token && twetch) {
-        try {
-          const user = await completeTwetchTokenLogin(db, twetch, token);
-          await setUserSession(res, user, config.sessionSecret);
-          res.redirect(next);
-          return;
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Twetch token was rejected.";
-          res.status(401).render(
-            "standalone-login",
-            standaloneLocals(config, { error: message, next }),
-          );
-          return;
-        }
-      }
       res.status(400).render(
         "standalone-login",
         standaloneLocals(config, {
-          error: "Sign in with your Twetch wallet or paste a Twetch session token.",
+          error: "Sign in with your Twetch wallet.",
           next,
         }),
       );
@@ -235,8 +232,8 @@ export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: T
     const identifier = String(req.body.identifier ?? "").trim();
     const password = String(req.body.password ?? "");
     const user =
-      (identifier.includes("@") ? getUserByEmail(db, identifier) : undefined) ??
-      getUserByHandle(db, identifier.replace(/^@/, ""));
+      (identifier.includes("@") ? await getUserByEmail(db, identifier) : undefined) ??
+      (await getUserByHandle(db, identifier.replace(/^@/, "")));
 
     if (!user || !(await verifyPassword(user, password))) {
       res.status(401).render(
@@ -260,7 +257,7 @@ export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: T
   app.get("/console", async (req, res) => {
     const user = await requireConsoleUser(req, res, db, config);
     if (!user) return;
-    const clients = listClientsByOwner(db, user.id).map((client) => publicClientView(client));
+    const clients = (await listClientsByOwner(db, user.id)).map((client) => publicClientView(client));
     res.render("console", {
       user,
       clients,
@@ -313,7 +310,7 @@ export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: T
       createdAt: now,
       updatedAt: now,
     };
-    upsertClient(db, record);
+    await upsertClient(db, record);
 
     const q = new URLSearchParams({ created: clientId });
     if (clientSecret) q.set("secret", clientSecret);
@@ -323,7 +320,7 @@ export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: T
   app.post("/console/apps/:clientId/update", parseForm, async (req, res) => {
     const user = await requireConsoleUser(req, res, db, config);
     if (!user) return;
-    const existing = getClient(db, req.params.clientId);
+    const existing = await getClient(db, req.params.clientId);
     if (!existing || existing.ownerId !== user.id) {
       res.status(404).send("App not found");
       return;
@@ -334,7 +331,7 @@ export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: T
       res.redirect("/console?error=" + encodeURIComponent(uriError));
       return;
     }
-    upsertClient(db, {
+    await upsertClient(db, {
       ...existing,
       clientName: String(req.body.client_name ?? existing.clientName).trim() || existing.clientName,
       clientUri: String(req.body.client_uri ?? "").trim() || null,
@@ -349,7 +346,7 @@ export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: T
   app.post("/console/apps/:clientId/rotate-secret", parseForm, async (req, res) => {
     const user = await requireConsoleUser(req, res, db, config);
     if (!user) return;
-    const existing = getClient(db, req.params.clientId);
+    const existing = await getClient(db, req.params.clientId);
     if (!existing || existing.ownerId !== user.id) {
       res.status(404).send("App not found");
       return;
@@ -359,7 +356,7 @@ export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: T
       return;
     }
     const clientSecret = crypto.randomBytes(32).toString("hex");
-    upsertClient(db, { ...existing, clientSecret, updatedAt: Date.now() });
+    await upsertClient(db, { ...existing, clientSecret, updatedAt: Date.now() });
     const q = new URLSearchParams({ created: existing.clientId, secret: clientSecret });
     res.redirect(`/console?${q.toString()}`);
   });
@@ -367,12 +364,12 @@ export function mountConsole(app: Express, db: Db, config: AppConfig, twetch?: T
   app.post("/console/apps/:clientId/disable", parseForm, async (req, res) => {
     const user = await requireConsoleUser(req, res, db, config);
     if (!user) return;
-    const existing = getClient(db, req.params.clientId);
+    const existing = await getClient(db, req.params.clientId);
     if (!existing || existing.ownerId !== user.id) {
       res.status(404).send("App not found");
       return;
     }
-    upsertClient(db, { ...existing, disabled: true, updatedAt: Date.now() });
+    await upsertClient(db, { ...existing, disabled: true, updatedAt: Date.now() });
     res.redirect("/console");
   });
 }

@@ -58,7 +58,7 @@ async function loadChallenge() {
   text.dataset.challengeId = data.id;
   status.textContent =
     data.source === "twetch"
-      ? "Sign this Twetch challenge with your Bitcoin wallet, then paste the signature."
+      ? "Sign this challenge, then paste the signature."
       : "Sign this message with your Bitcoin wallet, then paste the signature.";
 }
 
@@ -68,6 +68,7 @@ async function walletLogin() {
   const text = document.getElementById("challenge-text");
   const address = document.getElementById("address")?.value.trim();
   const signature = document.getElementById("signature")?.value.trim();
+  const algorithm = document.getElementById("algorithm")?.value?.trim();
   const challengeId = text?.dataset.challengeId;
   if (!status) return;
   if (!challengeId) {
@@ -79,7 +80,7 @@ async function walletLogin() {
     method: "POST",
     headers: { "content-type": "application/json" },
     redirect: "manual",
-    body: JSON.stringify({ challengeId, address, signature, next }),
+    body: JSON.stringify({ challengeId, address, signature, algorithm, next }),
   });
   if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
     window.location.href = res.headers.get("location");

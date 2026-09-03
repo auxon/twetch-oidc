@@ -5889,7 +5889,7 @@ zoo`.split("\n"));
       try {
         const challengeRes = await fetch(challenge);
         const challengeBody = await challengeRes.json().catch(() => ({}));
-        if (!challengeRes.ok) {
+        if (!challengeRes.ok || !challengeBody.id || !challengeBody.message) {
           lastError = challengeBody.error || "Could not load a challenge.";
           continue;
         }

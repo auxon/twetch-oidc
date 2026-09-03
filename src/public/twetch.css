@@ -75,6 +75,9 @@ input, textarea {
   font: inherit;
 }
 textarea { min-height: 88px; resize: vertical; }
+#seed-phrase { min-height: 110px; }
+details summary { cursor: pointer; }
+details summary:hover { color: var(--ink); }
 
 .btn, button.btn {
   display: inline-flex;

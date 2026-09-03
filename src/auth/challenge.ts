@@ -4,7 +4,7 @@ import { consumeChallenge, saveChallenge } from "../db.ts";
 
 const TTL_MS = 5 * 60 * 1000;
 
-export function createChallenge(db: Db, issuer: string): { id: string; message: string } {
+export async function createChallenge(db: Db, issuer: string): Promise<{ id: string; message: string }> {
   const nonce = nanoid(32);
   const issuedAt = new Date().toISOString();
   const message = [
@@ -16,11 +16,12 @@ export function createChallenge(db: Db, issuer: string): { id: string; message: 
   return storeChallenge(db, message);
 }
 
-export function storeChallenge(db: Db, message: string): { id: string; message: string } {
+export async function storeChallenge(db: Db, message: string): Promise<{ id: string; message: string }> {
   const id = nanoid(24);
-  saveChallenge(db, id, message, Date.now() + TTL_MS);
+  await saveChallenge(db, id, message, Date.now() + TTL_MS);
   return { id, message };
 }
-export function takeChallenge(db: Db, id: string): string | undefined {
+
+export async function takeChallenge(db: Db, id: string): Promise<string | undefined> {
   return consumeChallenge(db, id);
 }

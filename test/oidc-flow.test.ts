@@ -7,6 +7,8 @@ import { demoWallet } from "../src/seed.ts";
 import { signMessage } from "../src/auth/bitcoin.ts";
 import Twetch from "../packages/authjs-twetch/index.js";
 
+let idp: TestIdp | undefined;
+
 afterEach(async () => {
   if (idp) {
     await stopIdp(idp);
@@ -57,10 +59,12 @@ async function confirmAndExchange(
 ) {
   expect(consentPage.body).toContain("Allow");
   const uid = new URL(consentPage.url).pathname.split("/")[2];
+  const afterConfirm = await request(current, `/interaction/${uid}/confirm`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: formBody({}),  });
-  const continued = await follow(current, afterConfirm.headers.get("location") ?? `/interaction/${session.uid}`);
+    body: formBody({}),
+  });
+  const continued = await follow(current, afterConfirm.headers.get("location") ?? `/interaction/${uid}`);
   expect(continued.external).toBeTruthy();
   const callback = continued.external!;
   expect(callback.searchParams.get("state")).toBe(session.state);
@@ -98,7 +102,7 @@ describe("OIDC provider", () => {
       keys: Array<{ kty: string; d?: string }>;
     };
     expect(jwks.keys.length).toBeGreaterThan(0);
-    expect(jwks.keys[0].kty).toBe("RSA");
+    expect(jwks.keys[0].kty).toBe("EC");
     expect(jwks.keys[0].d).toBeUndefined();  });
 
   it("completes authorization code + PKCE with password login", async () => {

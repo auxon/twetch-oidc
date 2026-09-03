@@ -2,6 +2,7 @@ import { EncryptJWT, jwtDecrypt } from "jose";
 import type { Request, Response } from "express";
 import type { TwetchUser } from "../types.ts";
 import { getUserById, type Db } from "../db.ts";
+
 const COOKIE = "twetch_session";
 const MAX_AGE_SEC = 60 * 60 * 24 * 14;
 
@@ -54,15 +55,4 @@ export async function readSessionUser(
   return getUserById(db, id);
 }
 
-export function parseCookies(header: string | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!header) return out;
-  for (const part of header.split(";")) {
-    const eq = part.indexOf("=");
-    if (eq === -1) continue;
-    out[part.slice(0, eq).trim()] = part.slice(eq + 1).trim();
-  }
-  return out;
-}
-
-export { COOKIE as SESSION_COOKIE, base64url };
+export const SESSION_COOKIE = COOKIE;

@@ -1,4 +1,11 @@
-import type { TwetchAuthenticateInput, TwetchClient, TwetchProfile } from "./types.ts";
+import { generateWallet } from "../auth/bitcoin.ts";
+import type {
+  TwetchAuthenticateInput,
+  TwetchChallenge,
+  TwetchClient,
+  TwetchExternalAlgorithm,
+  TwetchProfile,
+} from "./types.ts";
 import { TwetchAuthError } from "./types.ts";
 
 export interface HttpTwetchClientOptions {
@@ -8,42 +15,27 @@ export interface HttpTwetchClientOptions {
   fetch?: typeof fetch;
 }
 
-const ME_QUERY = `
-  query OidcMe {
-    me {
-      id
-      name
-      icon
-      profilePhoto
-      publicKey
-    }
-  }
-`;
+const CHALLENGE_RE = /^twetch-login:([0-9a-fA-F]+):(\d+)$/;
 
-const ME_QUERY_MIN = `
-  query OidcMeMin {
-    me {
-      id
-      name
-      publicKey
-    }
+export function inferTwetchAlgorithm(address: string, explicit?: string): TwetchExternalAlgorithm {
+  const requested = (explicit ?? "").trim();
+  if (requested === "BTC_BIP322" || requested === "ETH_PERSONAL" || requested === "SOLANA_ED25519") {
+    return requested;
   }
-`;
+  const addr = address.trim();
+  if (/^0x[0-9a-fA-F]{40}$/.test(addr)) return "ETH_PERSONAL";
+  if (/^(bc1|tb1|[13mn])/i.test(addr)) return "BTC_BIP322";
+  return "SOLANA_ED25519";
+}
 
-const USER_BY_ID_QUERY = `
-  query OidcUser($id: BigInt!) {
-    userById(id: $id) {
-      id
-      name
-      icon
-      profilePhoto
-      publicKey
-    }
-  }
-`;
+export function parseLoginChallenge(message: string): { nonce?: string; ts?: number } {
+  const match = CHALLENGE_RE.exec(message.trim());
+  if (!match) return {};
+  return { nonce: match[1], ts: Number(match[2]) };
+}
 
 export class HttpTwetchClient implements TwetchClient {
-  private readonly fetchImpl: typeof fetch;
+  private readonly customFetch?: typeof fetch;
   private readonly opts: HttpTwetchClientOptions;
 
   constructor(opts: HttpTwetchClientOptions) {
@@ -51,116 +43,124 @@ export class HttpTwetchClient implements TwetchClient {
       authUrl: trimSlash(opts.authUrl),
       apiUrl: trimSlash(opts.apiUrl),
       graphqlUrl: trimSlash(opts.graphqlUrl),
-      fetch: opts.fetch,
     };
-    this.fetchImpl = opts.fetch ?? fetch;
+    this.customFetch = opts.fetch;
   }
 
-  async getChallenge(): Promise<string> {
-    const data = await this.requestJson("GET", `${this.opts.authUrl}/api/v1/challenge`);
-    const message = typeof data.message === "string" ? data.message : typeof data === "string" ? data : undefined;      throw new TwetchAuthError("Twetch challenge response did not include a message");
+  async getChallenge(): Promise<TwetchChallenge> {
+    const data = await this.requestJson("POST", `${this.opts.apiUrl}/v1/auth/login-challenge`, {});
+    const message =
+      (typeof data.challenge === "string" && data.challenge) ||
+      (typeof data.message === "string" && data.message) ||
+      undefined;
+    if (!message) {
+      throw new TwetchAuthError("Twetch challenge response did not include a message");
     }
-    return message;
+    const parsed = parseLoginChallenge(message);
+    const nonce = typeof data.nonce === "string" ? data.nonce : parsed.nonce;
+    const tsRaw = data.ts ?? parsed.ts;
+    const ts = typeof tsRaw === "number" ? tsRaw : Number(tsRaw);
+    return {
+      message,
+      nonce,
+      ts: Number.isFinite(ts) ? ts : undefined,
+    };
   }
 
   async authenticate(input: TwetchAuthenticateInput): Promise<string> {
-    const data = await this.requestJson("POST", `${this.opts.authUrl}/api/v1/authenticate`, {
-      message: input.message,
-      signature: input.signature,
-      address: input.address,
-      v2: true,
-    });
-    if (typeof data.token !== "string" || !data.token) {
-      throw new TwetchAuthError("Twetch authenticate did not return a token");
+    const parsed = parseLoginChallenge(input.message);
+    const nonce = input.nonce ?? parsed.nonce;
+    const ts = input.ts ?? parsed.ts;
+    if (!nonce || ts == null || !Number.isFinite(ts)) {
+      throw new TwetchAuthError("Twetch challenge is missing nonce/ts", 400);
     }
-    return data.token;
+    const device = generateWallet();
+    const data = await this.requestJson("POST", `${this.opts.apiUrl}/v1/auth/login-external`, {
+      algorithm: inferTwetchAlgorithm(input.address, input.algorithm),
+      address: input.address,
+      signature: input.signature,
+      nonce,
+      ts,
+      devicePubkey: device.publicKeyHex,
+    });
+    const userId = data.userId ?? data.user_id ?? data.id;
+    if (userId == null || userId === "") {
+      throw new TwetchAuthError("Twetch login-external did not return a user id");
+    }
+    return String(userId);
   }
 
   async me(token: string): Promise<TwetchProfile> {
-    const fromAuth = await this.meFromAuthApi(token);
-    if (fromAuth) return fromAuth;
-    const fromGraphql = await this.graphqlMe(token, ME_QUERY).catch(() => this.graphqlMe(token, ME_QUERY_MIN));
-    if (!fromGraphql) {
-      throw new TwetchAuthError("Twetch did not return a profile for this token");
+    const id = token.trim();
+    if (!id) {
+      throw new TwetchAuthError("A Twetch user id is required.", 400);
     }
-    return fromGraphql;
+    const profile = await this.userById(id);
+    if (!profile) {
+      throw new TwetchAuthError("Twetch did not return a profile for this account", 404);
+    }
+    return profile;
   }
 
-  async userById(id: string, token?: string): Promise<TwetchProfile | undefined> {
+  async userById(id: string): Promise<TwetchProfile | undefined> {
     try {
-      const data = await this.graphql(token, USER_BY_ID_QUERY, { id });
-      const node = (data.userById ?? data.user_by_id) as Record<string, unknown> | undefined;
-      return node ? mapProfile(node) : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async meFromAuthApi(token: string): Promise<TwetchProfile | undefined> {
-    for (const method of ["GET", "POST"] as const) {
-      try {
-        const data = await this.requestJson(
-          method,
-          `${this.opts.authUrl}/api/v1/me`,
-          method === "POST" ? {} : undefined,
-          token,
-        );
-        const node = (data.me as Record<string, unknown> | undefined) ?? data;
-        if (!node || typeof node !== "object" || node.id == null) continue;
-        return mapProfile(node);
-      } catch {
-        // Auth `/me` is not in every Twetch deploy; GraphQL is the fallback.
+      const data = await this.requestJson("GET", `${this.opts.apiUrl}/v1/users/${encodeURIComponent(id)}`);
+      if (data.id == null) return undefined;
+      return mapProfile(data);
+    } catch (err) {
+      if (err instanceof TwetchAuthError && (err.status === 404 || err.status === 400)) {
+        return undefined;
       }
+      throw err;
     }
-    return undefined;
   }
 
-  private async graphqlMe(token: string, query: string): Promise<TwetchProfile | undefined> {    const data = await this.graphql(token, query);
-    const node = data.me as Record<string, unknown> | undefined;
-    return node ? mapProfile(node) : undefined;
-  }
-
-  private async graphql(token: string | undefined, query: string, variables?: Record<string, unknown>) {
-    const data = await this.requestJson("POST", this.opts.graphqlUrl, { query, variables: variables ?? null }, token);
-    if (data.errors) {
-      const message = Array.isArray(data.errors)
-        ? data.errors.map((err: { message?: string }) => err.message).join("; ")
-        : "GraphQL error";
-      throw new TwetchAuthError(message);
+  async userByPubkey(publicKey: string): Promise<TwetchProfile | undefined> {
+    const key = publicKey.trim();
+    if (!key) return undefined;
+    try {
+      const data = await this.requestJson(
+        "GET",
+        `${this.opts.apiUrl}/v1/auth/user-by-pubkey/${encodeURIComponent(key)}`,
+      );
+      const userId = data.userId ?? data.user_id ?? data.id;
+      if (userId == null || userId === "") return undefined;
+      return this.userById(String(userId));
+    } catch (err) {
+      if (err instanceof TwetchAuthError && (err.status === 404 || err.status === 400)) {
+        return undefined;
+      }
+      throw err;
     }
-    return (data.data ?? data) as Record<string, unknown>;
   }
 
-  private async requestJson(
-    method: string,
-    url: string,
-    body?: unknown,
-    token?: string,
-  ): Promise<Record<string, unknown>> {
+  private async requestJson(method: string, url: string, body?: unknown): Promise<Record<string, unknown>> {
     const headers: Record<string, string> = {
       accept: "application/json",
       "user-agent": "twetch-oidc/1.0",
     };
     if (body !== undefined) headers["content-type"] = "application/json";
-    if (token) headers.authorization = `Bearer ${token}`;
 
-    const res = await this.fetchImpl(url, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    const res = this.customFetch
+      ? await this.customFetch(url, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+        })
+      : await fetch(url, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
     const text = await res.text();
     if (!res.ok) {
-      throw new TwetchAuthError(
-        `Twetch ${method} ${url} failed (${res.status}): ${text.slice(0, 200)}`,
-        res.status,
-      );
+      throw new TwetchAuthError(`Twetch ${method} ${pathOf(url)} failed (${res.status}): ${summarizeTwetchError(text)}`, res.status);
     }
     if (!text) return {};
     try {
       return JSON.parse(text) as Record<string, unknown>;
     } catch {
-      throw new TwetchAuthError(`Twetch ${url} returned non-JSON`);
+      throw new TwetchAuthError(`Twetch ${pathOf(url)} returned non-JSON`);
     }
   }
 }
@@ -169,9 +169,35 @@ function trimSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
+function pathOf(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
+export function summarizeTwetchError(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "empty error body";
+  if (trimmed.startsWith("<") || /<html/i.test(trimmed)) {
+    const title = trimmed.match(/<title>([^<]+)<\/title>/i)?.[1]?.trim();
+    return title || "upstream returned HTML";
+  }
+  try {
+    const json = JSON.parse(trimmed) as { error?: unknown; message?: unknown; detail?: unknown };
+    const message = json.error ?? json.message ?? json.detail;
+    if (typeof message === "string" && message) return message;
+  } catch {
+    // fall through to a short plaintext slice
+  }
+  return trimmed.slice(0, 200);
+}
+
 export function mapProfile(node: Record<string, unknown>): TwetchProfile {
   const id = String(node.id ?? "");
-  if (!id) {    throw new TwetchAuthError("Twetch profile is missing id");
+  if (!id) {
+    throw new TwetchAuthError("Twetch profile is missing id");
   }
   const name = String(node.name ?? node.username ?? `Twetch ${id}`);
   const picture =
@@ -179,7 +205,12 @@ export function mapProfile(node: Record<string, unknown>): TwetchProfile {
     (typeof node.profilePhoto === "string" && node.profilePhoto) ||
     (typeof node.profile_photo === "string" && node.profile_photo) ||
     undefined;
-  const publicKey = typeof node.publicKey === "string" ? node.publicKey : typeof node.public_key === "string" ? node.public_key : undefined;
+  const publicKey =
+    typeof node.publicKey === "string"
+      ? node.publicKey
+      : typeof node.public_key === "string"
+        ? node.public_key
+        : undefined;
   const email = typeof node.email === "string" && node.email.includes("@") ? node.email : undefined;
   return {
     id,

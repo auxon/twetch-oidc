@@ -1,5 +1,16 @@
+/// <reference lib="dom" />
 import { deriveTwetchAccounts, wipeBytes } from "../auth/twetch-seed.ts";
 import { signMessage } from "../auth/bitcoin.ts";
+
+interface SeedChallenge {
+  id: string;
+  message: string;
+}
+
+interface SeedLoginResponse {
+  redirect?: string;
+  error?: string;
+}
 
 function seedEndpoints() {
   const parts = location.pathname.split("/");
@@ -44,9 +55,12 @@ async function seedLogin() {
   for (const account of accounts) {
     try {
       const challengeRes = await fetch(challenge);
-      const challengeBody = await challengeRes.json().catch(() => ({}));
-      if (!challengeRes.ok) {
-        lastError = challengeBody.error || "Could not load a challenge.";
+      const challengeBody = (await challengeRes
+        .json()
+        .catch(() => ({}))) as Partial<SeedChallenge>;
+      if (!challengeRes.ok || !challengeBody.id || !challengeBody.message) {
+        lastError =
+          (challengeBody as { error?: string }).error || "Could not load a challenge.";
         continue;
       }
       const signature = signMessage(challengeBody.message, account.secretKey);
@@ -65,7 +79,10 @@ async function seedLogin() {
       });
       // Preferred: server answers 200 + { redirect } (JSON survives fetch in
       // every browser; 303 Location headers do not).
-      const body = await res.clone().json().catch(() => ({}));
+      const body = (await res
+        .clone()
+        .json()
+        .catch(() => ({}))) as SeedLoginResponse;
       if (res.ok && typeof body.redirect === "string" && body.redirect) {
         window.location.href = body.redirect;
         return;

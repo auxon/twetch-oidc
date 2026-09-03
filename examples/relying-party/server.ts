@@ -2,8 +2,12 @@ import express from "express";
 import * as client from "openid-client";
 
 const ISSUER = process.env.TWETCH_ISSUER ?? "http://localhost:3000";
-const CLIENT_ID = process.env.TWETCH_CLIENT_ID ?? "twetch-example-rp";const PORT = Number(process.env.RP_PORT ?? 3001);
+const CLIENT_ID = process.env.TWETCH_CLIENT_ID ?? "twetch-example-rp";
+const CLIENT_SECRET = process.env.TWETCH_CLIENT_SECRET ?? "twetch-example-rp-secret";
+const PORT = Number(process.env.RP_PORT ?? 3001);
 const REDIRECT_URI = `http://localhost:${PORT}/callback`;
+
+let oidc: Awaited<ReturnType<typeof client.discovery>>;
 
 const sessions = new Map<string, { verifier: string; state: string; nonce: string }>();
 

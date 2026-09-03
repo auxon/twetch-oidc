@@ -29,7 +29,7 @@ export async function seed(db: Db, options: SeedOptions = {}) {
     const wallet = demoWallet();
     const passwordHash = bcrypt.hashSync(DEMO_PASSWORD, 10);
 
-    upsertUser(db, {
+    await upsertUser(db, {
       id: "1",
       handle: "josh",
       displayName: "Josh Petty",
@@ -43,7 +43,7 @@ export async function seed(db: Db, options: SeedOptions = {}) {
       updatedAt: now,
     });
 
-    upsertUser(db, {
+    await upsertUser(db, {
       id: "2",
       handle: "nondualrandy",
       displayName: "Billy Rose",
@@ -59,7 +59,7 @@ export async function seed(db: Db, options: SeedOptions = {}) {
   }
 
   if (seedExampleClient) {
-    upsertClient(db, {
+    await upsertClient(db, {
       clientId: "twetch-example-rp",
       clientSecret: "twetch-example-secret",
       ownerId: live ? "system" : "1",
@@ -79,15 +79,16 @@ export async function seed(db: Db, options: SeedOptions = {}) {
   }
 }
 
-export async function loadOrCreateJwks(db: Db) {  const existing = getSigningKeys(db);
+export async function loadOrCreateJwks(db: Db) {
+  const existing = await getSigningKeys(db);
   if (existing.length > 0) {
     return { keys: existing };
   }
 
-  const { privateKey } = await generateKeyPair("RS256", { extractable: true, modulusLength: 2048 });
+  const { privateKey } = await generateKeyPair("ES256", { extractable: true });
   const jwk = await exportJWK(privateKey);
   const kid = await calculateJwkThumbprint(jwk);
-  const stored = { ...jwk, kid, alg: "RS256", use: "sig" };
-  insertSigningKey(db, kid, stored);
+  const stored = { ...jwk, kid, alg: "ES256", use: "sig" };
+  await insertSigningKey(db, kid, stored);
   return { keys: [stored] };
 }

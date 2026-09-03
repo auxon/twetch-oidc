@@ -4,5 +4,6 @@ export default defineConfig({
   test: {
     fileParallelism: false,
     testTimeout: 30000,
+    exclude: ["node_modules/**", ".cloud-agent-recovery/**", ".wrangler/**"],
   },
 });

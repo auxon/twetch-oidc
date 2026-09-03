@@ -101,11 +101,11 @@ export function signMessage(message: string, secretKey: Uint8Array): string {
   const bitcoin = new Uint8Array(65);
   bitcoin[0] = 27 + recovered[0] + 4;
   bitcoin.set(recovered.subarray(1), 1);
-  return Buffer.from(bitcoin).toString("base64");
+  return bytesToBase64(bitcoin);
 }
 
 export function recoverPublicKey(message: string, signatureB64: string): Uint8Array {
-  const raw = Buffer.from(signatureB64, "base64");
+  const raw = base64ToBytes(signatureB64);
   if (raw.length !== 65) {
     throw new Error("Bitcoin signature must be 65 bytes");
   }
@@ -132,4 +132,28 @@ export function verifyMessage(message: string, address: string, signatureB64: st
   } catch {
     return false;
   }
+}
+
+export function equalHex(a: string, b: string): boolean {
+  const left = a.trim().toLowerCase().replace(/^0x/, "");
+  const right = b.trim().toLowerCase().replace(/^0x/, "");
+  if (left.length !== right.length || left.length === 0) return false;
+  let diff = 0;
+  for (let i = 0; i < left.length; i++) {
+    diff |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
 }

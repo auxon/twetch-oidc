@@ -4,20 +4,21 @@ import { cacheTwetchProfile } from "../twetch/cache.ts";
 import type { TwetchClient } from "../twetch/types.ts";
 import type { TwetchClaims } from "../types.ts";
 
-const PROFILE_URL = "https://twetch.app/u";
+const PROFILE_URL = "https://twetch.com/u";
 
 export function createFindAccount(db: Db, twetch?: TwetchClient) {
   return async function findAccount(_ctx: unknown, id: string) {
-    let user = getUserById(db, id);
+    let user = await getUserById(db, id);
     if (!user && twetch) {
       const profile = await twetch.userById(id);
       if (profile) {
-        user = cacheTwetchProfile(db, profile);
+        user = await cacheTwetchProfile(db, profile);
       }
     }
     if (!user) return undefined;
 
-    return {      accountId: user.id,
+    return {
+      accountId: user.id,
       async claims(): Promise<TwetchClaims> {
         const claims: TwetchClaims = { sub: user.id };
         claims.name = user.displayName;

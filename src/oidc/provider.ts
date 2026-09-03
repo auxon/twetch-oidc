@@ -17,7 +17,8 @@ export function createProvider(
     findAccount: createFindAccount(db, twetch),
     jwks: jwks as { keys: never[] },
     cookies: {
-      keys: config.cookieKeys,    },
+      keys: config.cookieKeys,
+    },
     routes: {
       authorization: "/authorize",
       token: "/token",
@@ -32,7 +33,8 @@ export function createProvider(
     responseTypes: ["code"],
     claims: {
       openid: ["sub"],
-      profile: [        "name",
+      profile: [
+        "name",
         "preferred_username",
         "picture",
         "profile",
@@ -49,14 +51,9 @@ export function createProvider(
       rpInitiatedLogout: { enabled: true },
       userinfo: { enabled: true },
     },
-    features: {
-      devInteractions: { enabled: false },
-      revocation: { enabled: true },
-      rpInitiatedLogout: { enabled: true },
-      userinfo: { enabled: true },
-    },
     ttl: {
-      AccessToken: 60 * 60,      AuthorizationCode: 60,
+      AccessToken: 60 * 60,
+      AuthorizationCode: 60,
       IdToken: 60 * 60,
       RefreshToken: 14 * 24 * 60 * 60,
       Interaction: 60 * 60,

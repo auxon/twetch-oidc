@@ -3,7 +3,11 @@ import { upsertUser } from "../db.ts";
 import type { TwetchUser } from "../types.ts";
 import type { TwetchProfile } from "./types.ts";
 
-export function cacheTwetchProfile(db: Db, profile: TwetchProfile): TwetchUser {
+export async function cacheTwetchProfile(
+  db: Db,
+  profile: TwetchProfile,
+  extras: { signingAddress?: string } = {},
+): Promise<TwetchUser> {
   const now = Date.now();
   const user: TwetchUser = {
     id: profile.id,
@@ -13,11 +17,11 @@ export function cacheTwetchProfile(db: Db, profile: TwetchProfile): TwetchUser {
     email: profile.email ?? null,
     emailVerified: Boolean(profile.email),
     passwordHash: null,
-    signingAddress: null,
+    signingAddress: extras.signingAddress ?? null,
     signingPubkey: profile.publicKey ?? null,
     createdAt: now,
     updatedAt: now,
   };
-  upsertUser(db, user);
+  await upsertUser(db, user);
   return user;
 }

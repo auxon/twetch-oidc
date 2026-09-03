@@ -2,11 +2,11 @@ import net from "node:net";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { loadConfig } from "../src/config.ts";
-import { openDb, upsertClient, type Db } from "../src/db.ts";
+import { upsertClient, type Db } from "../src/db.ts";
+import { openMemoryDb } from "../src/db-memory.ts";
 import { seed } from "../src/seed.ts";
 import { createApp } from "../src/app.ts";
-import type { TwetchClient, TwetchProfile } from "../src/twetch/types.ts";
-import { TwetchAuthError } from "../src/twetch/types.ts";
+import type { TwetchClient } from "../src/twetch/types.ts";
 
 export class CookieJar {
   private cookies = new Map<string, string>();
@@ -50,15 +50,19 @@ export interface TestIdp {
   jar: CookieJar;
 }
 
-export async function startIdp(): Promise<TestIdp> {
+export async function startIdp(
+  opts: { live?: boolean; demoMode?: boolean; twetch?: TwetchClient } = {},
+): Promise<TestIdp> {
   const port = await getPort();
   const issuer = `http://127.0.0.1:${port}`;
-  const db = openDb(":memory:");
-  await seed(db);
-  upsertClient(db, {
+  const live = opts.live ?? false;
+  const db = openMemoryDb();
+  await seed(db, { live, seedExampleClient: true });
+  await upsertClient(db, {
     clientId: "test-client",
     clientSecret: "test-secret",
-    ownerId: "1",    clientName: "Test App",
+    ownerId: "1",
+    clientName: "Test App",
     clientUri: "http://rp.example",
     logoUri: "http://rp.example/logo.png",
     redirectUris: ["http://rp.example/callback"],
@@ -81,7 +85,8 @@ export async function startIdp(): Promise<TestIdp> {
   const { app } = await createApp(db, config, { twetch: opts.twetch });
   const server = await new Promise<Server>((resolve) => {
     const s = app.listen(port, "127.0.0.1", () => resolve(s));
-  });  return { issuer, port, db, server, jar: new CookieJar() };
+  });
+  return { issuer, port, db, server, jar: new CookieJar() };
 }
 
 export async function stopIdp(idp: TestIdp) {
@@ -105,7 +110,11 @@ export async function request(
   return res;
 }
 
-export async function follow(idp: TestIdp, pathOrUrl: string, limit = 12): Promise<{
+export async function follow(
+  idp: TestIdp,
+  pathOrUrl: string,
+  limit = 12,
+): Promise<{
   res: Response;
   body: string;
   url: string;
@@ -130,5 +139,45 @@ export async function follow(idp: TestIdp, pathOrUrl: string, limit = 12): Promi
   return { res, body: await res.text(), url: next };
 }
 
-export function formBody(data: Record<string, string>): URLSearchParams {  return new URLSearchParams(data);
+export function formBody(data: Record<string, string>): URLSearchParams {
+  return new URLSearchParams(data);
+}
+
+export const LIVE_TWETCH_PROFILE = {
+  id: "4242",
+  name: "Live User",
+  handle: "liveuser",
+  picture: "https://img.example/live.png",
+  publicKey: "02aabbcc",
+};
+
+export function createFakeTwetchClient(overrides: Partial<typeof LIVE_TWETCH_PROFILE> = {}) {
+  const profile = { ...LIVE_TWETCH_PROFILE, ...overrides };
+  const challenges: string[] = [];
+  const tokens: Array<{ message: string; signature: string; address: string; algorithm?: string }> = [];
+  return {
+    challenges,
+    tokens,
+    profile,
+    async getChallenge() {
+      const message = "twetch-login:testdeadbeef:1";
+      challenges.push(message);
+      return { message, nonce: "testdeadbeef", ts: 1 };
+    },
+    async authenticate(input: { message: string; signature: string; address: string; algorithm?: string }) {
+      tokens.push(input);
+      return profile.id;
+    },
+    async me() {
+      return profile;
+    },
+    async userById(id: string) {
+      if (id === profile.id) return profile;
+      return undefined;
+    },
+    async userByPubkey(publicKey: string) {
+      if (publicKey.toLowerCase() === profile.publicKey.toLowerCase()) return profile;
+      return undefined;
+    },
+  };
 }
