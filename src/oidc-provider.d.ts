@@ -17,6 +17,12 @@ declare module "oidc-provider" {
       result: Record<string, unknown>,
       options?: { mergeWithLastSubmission?: boolean },
     ): Promise<void>;
+    interactionResult(
+      req: IncomingMessage,
+      res: ServerResponse,
+      result: Record<string, unknown>,
+      options?: { mergeWithLastSubmission?: boolean },
+    ): Promise<string>;
     Client: { find(id: string): Promise<Record<string, unknown> | undefined> };
     Grant: {
       new (args: { accountId: string; clientId: string }): {

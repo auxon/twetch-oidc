@@ -13,6 +13,7 @@ import { createFindAccount } from "../src/oidc/account.ts";
 import { getUserById } from "../src/db.ts";
 import { demoWallet } from "../src/seed.ts";
 import { signMessage } from "../src/auth/bitcoin.ts";
+import { deriveTwetchAccount } from "../src/auth/twetch-seed.ts";
 import * as client from "openid-client";
 
 let idp: TestIdp | undefined;
@@ -47,6 +48,8 @@ async function beginLogin(current: TestIdp) {
   const loginPage = await follow(current, authorize.href);
   expect(loginPage.res.status).toBe(200);
   expect(loginPage.body).toContain("production Twetch");
+  expect(loginPage.body).toContain("seed phrase");
+  expect(loginPage.body).not.toContain("Unisat");
   expect(loginPage.body).not.toContain("name=\"password\"");
   const uid = new URL(loginPage.url).pathname.split("/")[2];
   return { oidc, verifier, state, nonce, uid };
@@ -95,6 +98,7 @@ describe("live Twetch OIDC", () => {
         challengeId: challenge.id,
         address: wallet.address,
         signature,
+        algorithm: "BTC_BIP322",
       }),
     });
     expect(posted.status).toBeGreaterThanOrEqual(300);
@@ -107,10 +111,10 @@ describe("live Twetch OIDC", () => {
     expect(claims.preferred_username).toBe("liveuser");
     expect(claims.name).toBe("Live User");
     expect(claims.twetch_pubkey).toBe(LIVE_TWETCH_PROFILE.publicKey);
-    expect(getUserById(idp.db, "4242")?.signingAddress).toBe(wallet.address);
+    expect((await getUserById(idp.db, "4242"))?.signingAddress).toBe(wallet.address);
   });
 
-  it("accepts a pasted Twetch bearer token", async () => {
+  it("rejects pasted session tokens because Twetch no longer issues them", async () => {
     const twetch = createFakeTwetchClient();
     idp = await startIdp({ live: true, twetch });
     const session = await beginLogin(idp);
@@ -119,10 +123,7 @@ describe("live Twetch OIDC", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token: "pasted-token" }),
     });
-    expect(posted.status).toBeGreaterThanOrEqual(300);
-    const consent = await follow(idp, posted.headers.get("location")!);
-    const tokens = await confirmAndExchange(idp, session, consent);
-    expect(tokens.claims()?.sub).toBe("4242");
+    expect(posted.status).toBe(410);
   });
 
   it("rejects password login against production Twetch", async () => {
@@ -138,12 +139,22 @@ describe("live Twetch OIDC", () => {
     expect(body).toMatch(/password login is disabled/i);
   });
 
-  it("signs the developer console in with a live Twetch token", async () => {
-    idp = await startIdp({ live: true, twetch: createFakeTwetchClient() });
-    const login = await request(idp, "/login/token", {
+  it("signs the developer console in with a live Twetch wallet", async () => {
+    const twetch = createFakeTwetchClient();
+    idp = await startIdp({ live: true, twetch });
+    const challengeRes = await request(idp, "/login/challenge");
+    const challenge = (await challengeRes.json()) as { id: string; message: string };
+    const wallet = demoWallet();
+    const signature = signMessage(challenge.message, wallet.secretKey);
+    const login = await request(idp, "/login/wallet", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: "pasted-token", next: "/console" }),
+      body: JSON.stringify({
+        challengeId: challenge.id,
+        address: wallet.address,
+        signature,
+        next: "/console",
+      }),
     });
     expect(login.status).toBe(200);
     const body = (await login.json()) as { ok: boolean; sub: string; redirect: string };
@@ -156,6 +167,46 @@ describe("live Twetch OIDC", () => {
     expect(consolePage.body).toContain("Developer console");
   });
 
+  it("signs in with a Twetch seed without sending the mnemonic", async () => {
+    const derived = deriveTwetchAccount(
+      "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    );
+    const twetch = createFakeTwetchClient({ publicKey: derived.publicKeyHex });
+    idp = await startIdp({ live: true, twetch });
+    const session = await beginLogin(idp);
+    const refused = await request(idp, `/interaction/${session.uid}/seed`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        signature: "x",
+        challengeId: "nope",
+      }),
+    });
+    expect(refused.status).toBe(400);
+
+    const challengeRes = await request(idp, `/interaction/${session.uid}/seed-challenge`);
+    const challenge = (await challengeRes.json()) as { id: string; message: string; source: string };
+    expect(challenge.source).toBe("local");
+    const signature = signMessage(challenge.message, derived.secretKey);
+    const posted = await request(idp, `/interaction/${session.uid}/seed`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        challengeId: challenge.id,
+        signature,
+        publicKey: derived.publicKeyHex,
+      }),
+    });
+    expect(posted.status).toBe(200);
+    const postedBody = (await posted.json()) as { ok: boolean; redirect: string; sub: string };
+    expect(postedBody.ok).toBe(true);
+    expect(typeof postedBody.redirect).toBe("string");
+    const consent = await follow(idp, postedBody.redirect);
+    const tokens = await confirmAndExchange(idp, session, consent);
+    expect(tokens.claims()?.sub).toBe("4242");
+  });
+
   it("hydrates OIDC claims from Twetch userById when the cache is cold", async () => {
     const twetch = createFakeTwetchClient();
     idp = await startIdp({ live: true, twetch });
@@ -165,6 +216,6 @@ describe("live Twetch OIDC", () => {
     const claims = await account!.claims();
     expect(claims.sub).toBe("4242");
     expect(claims.preferred_username).toBe("liveuser");
-    expect(getUserById(idp.db, "4242")?.displayName).toBe("Live User");
+    expect((await getUserById(idp.db, "4242"))?.displayName).toBe("Live User");
   });
 });
